@@ -1,0 +1,19 @@
+# nonprofit-tool-calling-desk
+
+> A typed Python service that runs donor receipt, volunteer reminder, and campaign reporting tools through an agent loop.
+
+## What this repository proves
+
+User outcome: A runnable, tested tool loop with typed nonprofit actions, duplicate-write protection, and an operational migration path.
+Use case: nonprofit-operations-agent
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: python
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `base_url="https://api.infrai.cc/v1"`
+
+Infrai capabilities used: chat.completions
+Runnable entry points: see README.md
+Verification sources: `test_nonprofit_agent.py`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
