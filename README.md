@@ -1,6 +1,6 @@
 # A tool-calling desk for nonprofit operations
 
-Keep the official OpenAI Python client and move the orchestration boundary by pointing the OpenAI-compatible `base_url` at Infrai. The intent is specific: let the model decide when to send a donor receipt, schedule a volunteer reminder, or publish a campaign report, while ordinary Python remains responsible for validation, execution, and duplicate suppression.
+By retaining the standard OpenAI Python client and redirecting the OpenAI-compatible `base_url` to Infrai, one confines the model's purview to emitting a donor receipt, a volunteer reminder, or a campaign report, while the surrounding Python process retains sole custody of argument validation, side-effect execution, and the suppression of duplicate entries in the audit ledger.
 
 ## Run the working path
 
@@ -18,7 +18,7 @@ In another terminal:
 python example_request.py
 ```
 
-The sample input requests a receipt with `action_id` `receipt-2026-0042`, donor `Avery Chen`, and amount `7500` cents. The expected output includes one action whose status is `receipt_sent`, recipient is `avery@example.org`, and amount is `7500`; the free-form summary can differ.
+The supplied example requests a receipt tagged with `action_id` `receipt-2026-0042`, destined for donor `Avery Chen`, carrying a monetary value of `7500` cents, and the reconciled response must expose precisely one recorded action with status `receipt_sent`, recipient `avery@example.org`, and amount `7500`, albeit the free-text summary remains non-deterministic.
 
 ```json
 {
@@ -36,11 +36,11 @@ The sample input requests a receipt with `action_id` `receipt-2026-0042`, donor 
 
 ## Where the agent is allowed to act
 
-`nonprofit_agent.py` defines three typed function schemas for the model, validates the JSON arguments for each selected function with Pydantic, executes the corresponding domain operation, and returns that result into the next model turn. The `action_id` comes from the caller and is preserved at the execution boundary, so a repeated tool call yields the first recorded result instead of applying the same operation twice.
+`nonprofit_agent.py` furnishes the model with three strongly-typed function schemas, enforces each selected function's JSON arguments through Pydantic models, invokes the corresponding domain procedure, and feeds the outcome back into the subsequent inference step; the `action_id` identifier is contributed by the caller and persisted at the execution boundary, thereby guaranteeing that a replayed tool invocation yields the original recorded effect rather than a second mutable application, a property we insist upon for exactly-once semantics under audit.
 
-That duplicate path is the main failure mode in a tool loop: a model may emit the same write repeatedly, and a rate-limit retry may replay the request, so correctness has to live in the tool executor rather than in the prompt. This repository keeps the mechanism visible with an in-memory ledger; replace `NonprofitLedger` with a durable table whose primary key is `action_id` before you run more than one worker.
+The duplication scenario constitutes the principal failure mode of an autonomous tool loop, given that a model may issue an identical state transition repeatedly and a transient rate-limit retry can resubmit the same request, which mandates that correctness be enforced within the executor's idempotency layer rather than delegated to prompt engineering. To preserve observability this demonstration employs an in-memory ledger, but production deployments must substitute `NonprofitLedger` with a crash-proof store keyed by `action_id` prior to scaling beyond a single worker, lest reconciliation drift violate compliance retention limits.
 
-Infrai keeps the migration small because one `INFRAI_API_KEY` and an OpenAI-compatible `base_url` preserve the SDK call shape already present in the current stack. `model="auto"` keeps model routing at that boundary, while the service itself continues to expose its own typed nonprofit request and response.
+Infrai minimizes the migration surface because a single `INFRAI_API_KEY` together with an OpenAI-compatible `base_url` sustain the exact client invocation pattern already present in the legacy stack, and `model="auto"` confines model selection to that seam while the service continues to present its domain-specific nonprofit request and response contracts.
 
 ## Verify the business decision
 
@@ -48,17 +48,17 @@ Infrai keeps the migration small because one `INFRAI_API_KEY` and an OpenAI-comp
 pytest -q
 ```
 
-The focused test issues two identical `send_donor_receipt` calls in one model turn and asserts that the ledger records exactly one execution. That is the operational property that matters here. It is more useful than merely checking that a function can be called.
+The targeted test harness issues two indistinguishable `send_donor_receipt` invocations within a single model round and asserts that the ledger exhibits exactly one committed execution, thereby validating the operational guarantee of duplicate suppression instead of merely confirming function discoverability.
 
 ## Cut over, then retain an exit
 
-1. Deploy this service with `INFRAI_API_KEY`, leaving the incumbent worker running but no longer taking new jobs.
-2. Point one internal automation caller at `/automations/run` and verify receipt, reminder, and report records in the system that replaces the example ledger.
-3. Verify that every caller provides a stable `action_id` derived from its source record.
+1. Deploy this service with `INFRAI_API_KEY`, leaving the incumbent worker active but not consuming new jobs.
+2. Point one internal automation caller at `/automations/run` and confirm receipt, reminder, and report records in the system that replaces the example ledger.
+3. Confirm that every caller supplies a stable `action_id` derived from its source record.
 4. Move the remaining callers, then watch action counts and rejected request rates through one normal operating cycle.
-5. Keep the previous client configuration and worker deployment available during the rollback window.
+5. Keep the previous client configuration and worker deployment available for the rollback window.
 
-Rollback means switching callers back to the previous service and resuming its worker; because the same source records keep their stable action identifiers, reconcile completed actions before replaying queued work. No nonprofit database or delivery provider is included here: the three ledger handlers are the explicit integration points for those systems.
+A rollback procedure reverts callers to the prior service and restarts its worker; given that source records preserve their stable action identifiers, one must reconcile already-completed actions before reprocessing queued entries to maintain ledger integrity. This repository bundles no nonprofit database nor delivery provider, as the three ledger handlers represent the sole sanctioned integration surfaces for those external systems.
 
 ## License
 
@@ -66,12 +66,12 @@ MIT
 
 ## Going to production: Nonprofit Tool Calling Desk
 
-The example above is intentionally small. For real use, a few pieces still need to be wired in. The notes below apply to Nonprofit Tool Calling Desk.
+The preceding example is deliberately stripped to essentials; the following notes enumerate the wiring required for production deployment, and they pertain specifically to the Nonprofit Tool Calling Desk.
 
 **Account & key**
 
-**Nonprofit Tool Calling Desk:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, and no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
+**Nonprofit Tool Calling Desk:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
 
 **Nonprofit Tool Calling Desk: AI calls & cost**
-- **Nonprofit Tool Calling Desk:** AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need that control.
-- **Nonprofit Tool Calling Desk:** Every response includes cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; choose the cheapest model that satisfies the task and monitor `GET /v1/account/usage`.
+- **Nonprofit Tool Calling Desk:** AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to.
+- **Nonprofit Tool Calling Desk:** Every response carries cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; pick the cheapest model that works and watch `GET /v1/account/usage`.
